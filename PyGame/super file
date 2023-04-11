@@ -1,0 +1,432 @@
+import pygame
+import random
+from laser import Laser, WIDTH, HEIGHT
+from resourcegatheringbuilding import ResourceGatheringBuilding
+from math import atan2, degrees, cos, sin, pi
+import math
+
+
+def distance_between(rect1, rect2):
+    x_diff = rect1.centerx - rect2.centerx
+    y_diff = rect1.centery - rect2.centery
+    return (x_diff ** 2 + y_diff ** 2) ** 0.5
+
+
+class ResourceNode:
+    def __init__(self, resource_type, position):
+        self.resource_type = resource_type
+        self.rect = pygame.Rect(position[0], position[1], 50, 50)
+        self.radius = 60
+        self.angle = random.uniform(0, 2 * pi)
+        self.building_constructed = False  # flag to indicate if a building has been constructed on this node
+
+
+class AI:
+    def __init__(self, player_rect, laser_width=2):
+        self.rect = pygame.Rect(0, 0, 25, 25)
+        self.target = player_rect
+        self.speed = 2
+        self.distance = 75
+        self.rotation = 0  # Assign a default value to the rotation attribute
+        self.building = None
+        self.construction_time = 0
+        self.laser = Laser(WIDTH, HEIGHT, self.rotation)
+        self.laser_width = laser_width
+        self.laser_surf = pygame.Surface((self.laser_width, int(self.distance)), pygame.SRCALPHA)
+        self.screen = None
+
+        # Set the initial position of the AI near the player
+        angle = atan2(player_rect.centery - self.rect.centery, player_rect.centerx - self.rect.centerx)
+        self.rect.x = player_rect.centerx + self.distance * cos(angle) - self.rect.width // 2
+        self.rect.y = player_rect.centery + self.distance * sin(angle) - self.rect.height // 2
+
+    def update(self, player_rect, resource_nodes, gatherers):
+        """
+        Updates the AI's position and behavior.
+
+        :param player_rect: The Rect object representing the player's position.
+        :param resource_nodes: A list of ResourceNode objects.
+        :param gatherers: A list of ResourceGatheringBuilding objects.
+        :return: None
+        """
+
+        if not self.building:
+            # Find the nearest resource node within a certain distance
+            nearest_node = None
+            nearest_distance = float('inf')
+            for node in resource_nodes:
+                distance = distance_between(self.rect, node.rect)
+                if distance < 20 and distance < nearest_distance:
+                    nearest_node = node
+                    nearest_distance = distance
+
+            if nearest_node:
+                # If a nearby resource node is found, start building a resource gathering building on it
+                self.start_building(nearest_node, self.screen)
+            else:
+                # If no resource node is found, move the AI towards the player
+                angle = atan2(player_rect.centery - self.rect.centery,
+                              player_rect.centerx - self.rect.centerx)
+                angle += 0.05  # Increase this value to make the AI rotate faster
+                self.rect.x = player_rect.centerx + self.distance * cos(angle) - self.rect.width // 2
+                self.rect.y = player_rect.centery + self.distance * sin(angle) - self.rect.height // 2
+        else:
+            # If a resource gathering building is being constructed, update its progress
+            self.construct_building(gatherers)
+
+
+import pygame
+
+class Biome:
+    def __init__(self, left, top, width, height, color):
+        self.rect = pygame.Rect(left, top, width, height)
+        self.color = color
+
+    def draw(self, screen, camera):
+        screen.fill(self.color, self.rect.move(-camera.x, -camera.y))
+
+Biome(0, 0, 800, 600, (100, 200, 100))
+
+
+import pygame
+
+class Camera:
+    def __init__(self, target_rect, screen_width, screen_height, level_width, level_height):
+        self.x, self.y = 0, 0
+        self.width, self.height = screen_width, screen_height
+        self.level_width, self.level_height = level_width, level_height
+
+    def update(self, target_rect):
+        self.x = min(max(target_rect.centerx - self.width // 2, 0), self.level_width - self.width)
+        self.y = min(max(target_rect.centery - self.height // 2, 0), self.level_height - self.height)
+
+
+
+import pygame
+pygame.font.init()
+
+
+class Inventory:
+    def __init__(self, screen):
+        self.screen = screen
+        self.font = pygame.font.Font(None, 30)
+        self.resources = {}
+
+    def add_resource(self, resource_type):
+        if resource_type in self.resources:
+            self.resources[resource_type] += 1
+        else:
+            self.resources[resource_type] = 1
+
+    def draw(self):
+        # Draw the inventory on the top-left of the screen
+        x, y = 10, 10
+        for resource_type, count in self.resources.items():
+            text_surface = self.font.render(f"{resource_type}: {count}", True, (255, 255, 255))
+            self.screen.blit(text_surface, (x, y))
+            y += 30
+
+
+import pygame
+from pygame.math import Vector2
+WIDTH = 800
+HEIGHT = 600
+
+class Laser:
+    def __init__(self, x, y, rotation, speed=10):
+        self.image = pygame.Surface((5, 20), pygame.SRCALPHA)
+        pygame.draw.line(self.image, (255, 0, 0), (2, 0), (2, 20), 5)
+        self.rect = self.image.get_rect(center=(x, y))
+        self.velocity = Vector2(0, -1).rotate(rotation) * speed
+
+
+    def update(self):
+        self.rect.move_ip(self.velocity)
+        
+        
+import random
+from math import atan2, cos, sin
+
+import pygame
+
+from ai import AI
+from biome import Biome
+from map import Map
+from camera import Camera
+from inventory import Inventory
+from player import Player
+from resourcenode import Resource
+from resourcegatheringbuilding import ResourceGatheringBuilding
+
+# Initialize pygame
+pygame.init()
+
+# Screen dimensions
+WIDTH = 800
+HEIGHT = 600
+
+# Set up the game screen and clock
+screen = pygame.display.set_mode((800, 600))
+clock = pygame.time.Clock()
+
+# Set the title of the window
+pygame.display.set_caption('Resource Gathering Game')
+
+# Create the map
+map = Map(screen, 10, 10, 2400, 2400)
+
+# Create the player
+player = Player(map.starting_position[0], map.starting_position[1], WIDTH, HEIGHT)
+
+# Create the AI companion
+ai_companion = AI(player.rect, screen)
+
+# Create the inventory
+inventory = Inventory(screen)
+
+# Create the camera
+camera = Camera(player.rect, WIDTH, HEIGHT, map.width, map.height)
+
+# Create an initial set of resources
+resources = [Resource.generate_random_resource() for _ in range(10)]
+
+# Create biomes
+biomes = [
+    Biome(0, 0, 2400, 2400, (173, 216, 230)),
+    Biome(2400, 0, 2400, 2400, (173, 255, 47)),
+    Biome(0, 2400, 2400, 2400, (32, 178, 170)),
+    Biome(2400, 2400, 2400, 2400, (210, 180, 140)),
+]
+
+def distance_between(rect1, rect2):
+    x_diff = rect1.centerx - rect2.centerx
+    y_diff = rect1.centery - rect2.centery
+    return (x_diff ** 2 + y_diff ** 2) ** 0.5
+
+# Function to draw the background of the game
+def draw_background(screen, camera):
+    for x in range(camera.x // 100 * 100, camera.x + WIDTH + 100, 100):
+        for y in range(camera.y // 100 * 100, camera.y + HEIGHT + 100, 100):
+            pygame.draw.rect(screen, (200, 200, 200), pygame.Rect(x - camera.x, y - camera.y, 2, 2))
+
+# List to hold all the resource gatherers
+gatherers = []
+
+# Main game loop
+running = True
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # Get the currently pressed keys
+    keys = pygame.key.get_pressed()
+
+    # Update the player and AI companion
+    player.update(keys)
+    ai_companion.update(player.rect, resources, gatherers)
+
+    # Update the camera based on the player's position
+    camera.update(player.rect)
+
+    # Update the resource gathering buildings
+    for building in gatherers:
+        building.update(inventory)
+
+    # Generate new resources as the player moves
+    if random.random() < 0.01:
+        resources.append(Resource.generate_random_resource())
+
+    # Clear the screen
+    screen.fill((0, 0, 0))
+
+    # Draw the background
+    draw_background(screen, camera)
+
+    # Draw the map
+    map.draw(screen, camera)
+
+# Draw the biomes
+for biome in biomes:
+    biome.draw(screen, camera)
+
+# Draw the resources
+for resource in resources:
+    resource.draw(screen, camera)
+
+# Draw the resource gatherers
+for gatherer in gatherers:
+    gatherer.draw(screen, camera)
+
+# Draw the player and AI companion
+player.draw(screen, camera)
+ai_companion.draw(screen, camera)
+
+# Draw the inventory
+inventory.draw()
+
+# Update the display
+pygame.display.flip()
+
+# Wait a short amount of time
+pygame.time.delay(25)
+
+#Quit pygame when the game loop is finished
+pygame.quit()       
+
+import pygame
+from pygame import Rect
+from pygame.math import Vector2
+from typing import List, Tuple
+
+
+class Tile:
+    def __init__(self, image: pygame.Surface, rect: Rect):
+        self.image = image
+        self.rect = rect
+
+
+class Map:
+    def __init__(self, screen: pygame.Surface, rows: int, columns: int, width: int, height: int):
+        self.screen = screen
+        self.rows = rows
+        self.columns = columns
+        self.width = width
+        self.height = height
+        self.tiles = [[Tile(pygame.Surface((50, 50)), pygame.Rect(0, 0, 50, 50)) for _ in range(columns)] for _ in range(rows)]
+        self.starting_position = (width // 2, height // 2)  # Set the starting position to the center of the map
+
+    def draw(self):
+        tiles_on_screen = self._get_tiles_on_screen()
+        for tile in tiles_on_screen:
+            self.screen.blit(tile.image, tile.rect)
+
+    def _get_tiles_on_screen(self) -> List[Tile]:
+        tiles_on_screen = []
+        for tile in self.tiles:
+            if self._is_tile_on_screen(tile):
+                adjusted_rect = tile.rect.move(-self.camera_pos.x, -self.camera_pos.y)
+                tiles_on_screen.append(Tile(tile.image, adjusted_rect))
+        return tiles_on_screen
+
+    def _is_tile_on_screen(self, tile: Tile) -> bool:
+        x_min = self.camera_pos.x - self.tile_size
+        x_max = self.camera_pos.x + self.screen.get_width()
+        y_min = self.camera_pos.y - self.tile_size
+        y_max = self.camera_pos.y + self.screen.get_height()
+        return tile.rect.colliderect(pygame.Rect(x_min, y_min, x_max - x_min, y_max - y_min))
+
+    def set_camera_pos(self, pos: Vector2):
+        self.camera_pos = pos
+
+    def get_camera_rect(self) -> Rect:
+        return Rect(self.camera_pos.x, self.camera_pos.y, self.screen.get_width(), self.screen.get_height())
+
+import pygame
+
+class Player:
+    def __init__(self, x, y, screen_width, screen_height):
+        self.width = 30
+        self.height = 30
+        self.x = x
+        self.y = y
+        self.speed = 5
+        self.image = pygame.Surface((self.width, self.height))
+        self.image.fill((255, 255, 255))
+        self.rect = self.image.get_rect()
+        self.rect.x = self.x
+        self.rect.y = self.y
+
+
+    def update(self, keys):
+        if keys[pygame.K_w]:
+            self.rect.y -= self.speed
+        if keys[pygame.K_s]:
+            self.rect.y += self.speed
+        if keys[pygame.K_a]:
+            self.rect.x -= self.speed
+        if keys[pygame.K_d]:
+            self.rect.x += self.speed
+
+        self.x = self.rect.x
+        self.y = self.rect.y
+
+    def draw(self, screen, camera):
+        screen.blit(self.image, (self.x - camera.x, self.y - camera.y))
+
+import pygame
+from math import atan2, cos, sin, pi
+
+class ResourceGatheringBuilding:
+    def __init__(self, resource_node):
+        self.resource_node = resource_node
+        self.rect = resource_node.rect
+        self.gather_timer = 0
+        self.constructing = False
+        self.construct_timer = 0
+        x, y = resource_node.rect.centerx, resource_node.rect.centery
+        x += (resource_node.radius + 5) * cos(resource_node.angle)
+        y += (resource_node.radius - 5) * sin(resource_node.angle)
+        self.rect = pygame.Rect(x, y, 50, 50)
+
+
+    def update(self, inventory):
+        if self.constructing:
+            # Move towards the resource node while constructing the building
+            self.rect.move_ip(self.move_x, self.move_y)
+            self.construct_timer += 1
+            if self.construct_timer >= 300:  # 5 seconds at 60 FPS
+                self.constructing = False
+                self.construct_timer = 0
+        else:
+            # Gather resources from the resource node
+            self.gather_timer += 1
+            if self.gather_timer >= 180:  # 3 seconds at 60 FPS
+                inventory.add_resource(self.resource_node.resource_type)
+                self.gather_timer = 0
+
+    def draw(self, screen, camera):
+        if self.constructing:
+            # Draw a line connecting the building to the resource node
+            node_center = self.resource_node.rect.center
+            pygame.draw.line(screen, (255, 0, 0), self.rect.center, self.resource_node.rect.center, 2)
+
+            # Draw the laser animation
+            laser_pos = self.rect.center
+            laser_pos_x, laser_pos_y = laser_pos[0], laser_pos[1]
+            node_center_x, node_center_y = node_center[0], node_center[1]
+            pygame.draw.line(screen, (255, 0, 0), (laser_pos_x, laser_pos_y), (node_center_x, node_center_y), 4)
+            screen.blit(self.laser_surf, self.laser_surf.get_rect(center=self.rect.center).move(-camera.x, -camera.y))
+        else:
+            pygame.draw.rect(screen, (255, 0, 0), self.rect.move(-camera.x, -camera.y))
+            
+            import pygame
+import random
+import math
+
+pi = math.pi
+
+class Resource:
+    def __init__(self, resource_type, color):
+        self.rect = pygame.Rect(random.randint(0, 2400), random.randint(0, 2400), 30, 30)
+        self.resource_type = resource_type
+        self.radius = 2  # add radius attribute with appropriate value
+        self.color = color
+        self.angle = random.uniform(0, 2 * pi)
+
+    def draw(self, screen, camera):
+        pygame.draw.rect(screen, self.color, self.rect.move(-camera.x, -camera.y))
+        
+    @staticmethod
+    def generate_random_resource():
+        resource_types = [
+            ("Wood", (139, 69, 19)),
+            ("Stone", (128, 128, 128)),
+            ("Ore", (105, 105, 105)),
+            ("Gems", (0, 128, 128))
+        ]
+        resource_type, color = random.choice(resource_types)
+        return Resource(resource_type, color)
+
+
+
